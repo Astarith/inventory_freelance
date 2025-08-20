@@ -1,60 +1,80 @@
-const express = require('express');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const express = require("express");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const db = require("../config/db");
 
 const router = express.Router();
-const SECRET_KEY = 'rahasia123';
+const SECRET_KEY = "rahasia123";
 
 // ✅ Register
-router.post('/register', async (req, res) => {
-  const { username, password, email } = req.body;
-
-  if (!username || !password || !email) {
-    return res.status(400).json({ message: 'Semua field wajib diisi' });
-  }
-
+router.post("/register", async (req, res, next) => {
   try {
+    const { username, password, email } = req.body;
+
+    if (!username || !password || !email) {
+      return res.status(400).json({ message: "Semua field wajib diisi" });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Insert ke DB
     db.query(
-      'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+      "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
       [username, email, hashedPassword],
-      (err) => {
+      (err, result) => {
         if (err) {
-          return res.status(500).json({ message: 'Gagal register', error: err });
+          console.error("❌ DB Error Register:", err); // tampil di Railway
+          return res.status(500).json({ message: "Gagal register", error: err });
         }
-        res.status(201).json({ message: 'Register berhasil' });
+
+        res.status(201).json({
+          message: "Register berhasil",
+          userId: result.insertId,
+        });
       }
     );
   } catch (error) {
-    res.status(500).json({ message: 'Terjadi kesalahan', error });
+    console.error("❌ Register Catch Error:", error); // tampil di Railway
+    next(error); // lempar ke error handler global
   }
 });
 
 // ✅ Login
-router.post('/login', (req, res) => {
+router.post("/login", (req, res, next) => {
   const { username, password } = req.body;
 
   db.query(
-    'SELECT * FROM users WHERE username = ?',
+    "SELECT * FROM users WHERE username = ?",
     [username],
     async (err, results) => {
-      if (err) return res.status(500).json({ message: 'Terjadi kesalahan server' });
-      if (results.length === 0) return res.status(401).json({ message: 'User tidak ditemukan' });
+      if (err) {
+        console.error("❌ DB Error Login:", err);
+        return res.status(500).json({ message: "Terjadi kesalahan server" });
+      }
 
-      const user = results[0];
-      const isMatch = await bcrypt.compare(password, user.password);
+      if (results.length === 0) {
+        return res.status(401).json({ message: "User tidak ditemukan" });
+      }
 
-      if (!isMatch) return res.status(401).json({ message: 'Password salah' });
+      try {
+        const user = results[0];
+        const isMatch = await bcrypt.compare(password, user.password);
 
-      const token = jwt.sign(
-        { id: user.id, username: user.username },
-        SECRET_KEY,
-        { expiresIn: '1d' }
-      );
+        if (!isMatch) {
+          return res.status(401).json({ message: "Password salah" });
+        }
 
-      res.json({ message: 'Login berhasil', token });
+        const token = jwt.sign(
+          { id: user.id, username: user.username },
+          SECRET_KEY,
+          { expiresIn: "1d" }
+        );
+
+        res.json({ message: "Login berhasil", token });
+      } catch (error) {
+        console.error("❌ Login Catch Error:", error);
+        next(error);
+      }
     }
   );
 });
